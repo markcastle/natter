@@ -13,10 +13,11 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useNats } from '@/contexts/NatsContext';
-import { Plus } from 'lucide-react';
+import { Plus, Wifi, WifiOff, Loader } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
 
 const ChatSidebar: React.FC = () => {
   const sidebar = useSidebar();
@@ -24,7 +25,8 @@ const ChatSidebar: React.FC = () => {
     currentRoom, 
     availableRooms, 
     subscribeToRoom,
-    createRoom
+    createRoom,
+    connectionStatus
   } = useNats();
   
   const [newRoomName, setNewRoomName] = useState('');
@@ -45,6 +47,48 @@ const ChatSidebar: React.FC = () => {
     }
   };
 
+  // Connection status indicator
+  const renderConnectionStatus = () => {
+    if (isCollapsed) {
+      switch (connectionStatus) {
+        case 'connected':
+          return <Wifi className="h-4 w-4 text-green-500" />;
+        case 'connecting':
+          return <Loader className="h-4 w-4 text-yellow-500 animate-spin" />;
+        case 'disconnected':
+          return <WifiOff className="h-4 w-4 text-red-500" />;
+        default:
+          return null;
+      }
+    } else {
+      switch (connectionStatus) {
+        case 'connected':
+          return (
+            <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300 flex items-center gap-1">
+              <Wifi className="h-3 w-3" />
+              Connected
+            </Badge>
+          );
+        case 'connecting':
+          return (
+            <Badge variant="outline" className="bg-yellow-100 text-yellow-800 border-yellow-300 flex items-center gap-1">
+              <Loader className="h-3 w-3 animate-spin" />
+              Connecting...
+            </Badge>
+          );
+        case 'disconnected':
+          return (
+            <Badge variant="outline" className="bg-red-100 text-red-800 border-red-300 flex items-center gap-1">
+              <WifiOff className="h-3 w-3" />
+              Disconnected
+            </Badge>
+          );
+        default:
+          return null;
+      }
+    }
+  };
+
   return (
     <Sidebar
       className={`transition-all duration-300 ${isCollapsed ? "w-16" : "w-60"} border-r`}
@@ -54,6 +98,11 @@ const ChatSidebar: React.FC = () => {
           <div className="text-lg font-semibold text-nats-primary">NATS Chat</div>
         )}
         <SidebarTrigger className="ml-auto" />
+      </div>
+
+      {/* Connection Status Display */}
+      <div className={`px-3 py-2 ${isCollapsed ? 'flex justify-center' : ''}`}>
+        {renderConnectionStatus()}
       </div>
 
       <SidebarContent>

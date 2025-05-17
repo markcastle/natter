@@ -6,9 +6,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { User, Server } from 'lucide-react';
+import { User, Server, WifiOff, Wifi, Loader } from 'lucide-react';
 import { Form, FormField, FormItem, FormLabel, FormControl } from '@/components/ui/form';
 import { useForm } from 'react-hook-form';
+import { Badge } from '@/components/ui/badge';
 
 interface ChatHeaderProps {
   serverUrl: string;
@@ -55,12 +56,42 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ serverUrl, setServerUrl }) => {
     }
   };
 
+  // Connection status indicator
+  const renderConnectionStatus = () => {
+    switch (connectionStatus) {
+      case 'connected':
+        return (
+          <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300 flex items-center gap-1">
+            <Wifi className="h-3 w-3" />
+            Connected
+          </Badge>
+        );
+      case 'connecting':
+        return (
+          <Badge variant="outline" className="bg-yellow-100 text-yellow-800 border-yellow-300 flex items-center gap-1">
+            <Loader className="h-3 w-3 animate-spin" />
+            Connecting...
+          </Badge>
+        );
+      case 'disconnected':
+        return (
+          <Badge variant="outline" className="bg-red-100 text-red-800 border-red-300 flex items-center gap-1">
+            <WifiOff className="h-3 w-3" />
+            Disconnected
+          </Badge>
+        );
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="flex justify-between items-center p-4 border-b bg-white dark:bg-gray-900">
-      <div className="flex items-center">
+      <div className="flex items-center space-x-3">
         <h1 className="text-lg font-semibold text-nats-primary">
           #{currentRoom}
         </h1>
+        {renderConnectionStatus()}
       </div>
       
       <div className="flex items-center space-x-2">
