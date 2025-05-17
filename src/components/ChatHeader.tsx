@@ -26,6 +26,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ serverUrl, setServerUrl }) => {
   const { connectionStatus, connect, disconnect, currentRoom, username, setUsername } = useNats();
   const [newUsername, setNewUsername] = useState(username);
   const [serverDialogOpen, setServerDialogOpen] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
 
   // Form for server connection settings
   const serverForm = useForm<ServerFormValues>({
@@ -36,9 +37,21 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ serverUrl, setServerUrl }) => {
     }
   });
 
-  const handleConnect = () => {
+  const handleConnect = async () => {
     const { url, username, password } = serverForm.getValues();
-    connect(url, username, password);
+    
+    // Ensure the URL includes wss:// or ws://
+    let formattedUrl = url.trim();
+    if (!formattedUrl.startsWith('ws://') && !formattedUrl.startsWith('wss://')) {
+      formattedUrl = `wss://${formattedUrl}`;
+    }
+    
+    setIsConnecting(true);
+    try {
+      await connect(formattedUrl, username, password);
+    } finally {
+      setIsConnecting(false);
+    }
   };
 
   const handleDisconnect = () => {
@@ -46,7 +59,14 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ serverUrl, setServerUrl }) => {
   };
 
   const handleServerSettingsSave = (values: ServerFormValues) => {
-    setServerUrl(values.url);
+    // Ensure the URL includes wss:// or ws://
+    let formattedUrl = values.url.trim();
+    if (!formattedUrl.startsWith('ws://') && !formattedUrl.startsWith('wss://')) {
+      formattedUrl = `wss://${formattedUrl}`;
+      serverForm.setValue('url', formattedUrl);
+    }
+    
+    setServerUrl(formattedUrl);
     setServerDialogOpen(false);
   };
 
@@ -144,7 +164,14 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ serverUrl, setServerUrl }) => {
                     <FormItem>
                       <FormLabel>Server URL</FormLabel>
                       <FormControl>
-                        <Input placeholder="ws://localhost:9222" {...field} />
+                        <Input 
+                          placeholder="wss://example.com:9222" 
+                          {...field} 
+                          onChange={(e) => {
+                            let value = e.target.value;
+                            field.onChange(value);
+                          }}
+                        />
                       </FormControl>
                     </FormItem>
                   )}
@@ -193,13 +220,22 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ serverUrl, setServerUrl }) => {
             size="sm" 
             onClick={handleConnect}
             className="bg-nats-primary hover:bg-nats-dark"
+            disabled={isConnecting}
           >
-            Connect
+            {isConnecting ? (
+              <>
+                <Loader className="h-4 w-4 mr-2 animate-spin" />
+                Connecting...
+              </>
+            ) : (
+              'Connect'
+            )}
           </Button>
         )}
         
         {connectionStatus === 'connecting' && (
           <Button size="sm" disabled>
+            <Loader className="h-4 w-4 mr-2 animate-spin" />
             Connecting...
           </Button>
         )}

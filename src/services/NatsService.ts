@@ -1,4 +1,3 @@
-
 interface Message {
   id: string;
   userId: string;
@@ -75,14 +74,36 @@ class NatsService {
       // Build connection URL with credentials if provided
       let connectionUrl = url;
       if (username && password) {
-        // Format: ws://username:password@hostname:port
-        const urlObj = new URL(url);
-        urlObj.username = encodeURIComponent(username);
-        urlObj.password = encodeURIComponent(password);
-        connectionUrl = urlObj.toString();
+        // For WSS protocol, we need to handle authentication differently
+        // Most WSS servers expect auth headers or in the connection request
+        if (url.startsWith('wss://')) {
+          // Keep the URL clean for WSS and handle auth separately
+          connectionUrl = url;
+        } else {
+          // For regular WS, we can include credentials in URL
+          const urlObj = new URL(url);
+          urlObj.username = encodeURIComponent(username);
+          urlObj.password = encodeURIComponent(password);
+          connectionUrl = urlObj.toString();
+        }
       }
       
+      console.log(`Connecting to ${connectionUrl}`);
       this.ws = new WebSocket(connectionUrl);
+      
+      // If using WSS with credentials, handle authentication after connection
+      if (url.startsWith('wss://') && username && password) {
+        this.ws.onopen = () => {
+          if (this.ws) {
+            // Send authentication message
+            this.ws.send(JSON.stringify({
+              type: 'auth',
+              username,
+              password
+            }));
+          }
+        };
+      }
 
       return new Promise((resolve, reject) => {
         if (!this.ws) {
@@ -96,24 +117,42 @@ class NatsService {
           this.connectionStatus = 'connected';
           this.reconnectAttempts = 0;
           this.setupPingInterval();
-          resolve(true);
+          
+          // If WSS with credentials, we already set onopen above
+          if (!(url.startsWith('wss://') && username && password)) {
+            resolve(true);
+          } else {
+            resolve(true);
+          }
         };
 
         this.ws.onmessage = (event) => {
           try {
-            const data = JSON.parse(event.data);
-            if (data.type === 'message') {
-              this.handleIncomingMessage(data.message);
-            } else if (data.type === 'pong') {
-              // Handle pong response if needed
+            // Handle both text and binary messages
+            if (event.data instanceof Blob) {
+              // Handle binary data (Blob)
+              const reader = new FileReader();
+              reader.onload = () => {
+                try {
+                  const jsonData = JSON.parse(reader.result as string);
+                  this.processMessage(jsonData);
+                } catch (error) {
+                  console.log('Received binary data that is not JSON:', reader.result);
+                }
+              };
+              reader.readAsText(event.data);
+            } else if (typeof event.data === 'string') {
+              // Handle text data
+              const jsonData = JSON.parse(event.data);
+              this.processMessage(jsonData);
             }
           } catch (error) {
-            console.error('Error parsing WebSocket message:', error);
+            console.error('Error processing WebSocket message:', error);
           }
         };
 
-        this.ws.onclose = () => {
-          console.log('Disconnected from NATS server');
+        this.ws.onclose = (event) => {
+          console.log(`Disconnected from NATS server: ${event.code} - ${event.reason}`);
           this.connectionStatus = 'disconnected';
           this.clearPingInterval();
           this.attemptReconnect(url);
@@ -129,6 +168,20 @@ class NatsService {
       console.error('Failed to connect to NATS server:', error);
       this.connectionStatus = 'disconnected';
       return false;
+    }
+  }
+
+  // Process incoming message data
+  private processMessage(data: any): void {
+    if (data.type === 'message') {
+      this.handleIncomingMessage(data.message);
+    } else if (data.type === 'pong') {
+      // Handle pong response
+      console.log('Received pong from server');
+    } else if (data.type === 'auth_success') {
+      console.log('Authentication successful');
+    } else if (data.type === 'auth_failure') {
+      console.error('Authentication failed:', data.error);
     }
   }
 
