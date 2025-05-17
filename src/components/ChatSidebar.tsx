@@ -29,6 +29,9 @@ const ChatSidebar: React.FC = () => {
   
   const [newRoomName, setNewRoomName] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  
+  // Check if the sidebar is collapsed based on the state property
+  const isCollapsed = sidebar.state === "collapsed";
 
   const handleRoomChange = (room: string) => {
     subscribeToRoom(room);
@@ -44,10 +47,10 @@ const ChatSidebar: React.FC = () => {
 
   return (
     <Sidebar
-      className={`transition-all duration-300 ${sidebar.collapsed ? "w-16" : "w-60"} border-r`}
+      className={`transition-all duration-300 ${isCollapsed ? "w-16" : "w-60"} border-r`}
     >
       <div className="flex justify-between items-center p-3">
-        {!sidebar.collapsed && (
+        {!isCollapsed && (
           <div className="text-lg font-semibold text-nats-primary">NATS Chat</div>
         )}
         <SidebarTrigger className="ml-auto" />
@@ -95,10 +98,10 @@ const ChatSidebar: React.FC = () => {
                     onClick={() => handleRoomChange(room)}
                   >
                     <div className="flex items-center">
-                      {!sidebar.collapsed && (
+                      {!isCollapsed && (
                         <span className="truncate">#{room}</span>
                       )}
-                      {sidebar.collapsed && (
+                      {isCollapsed && (
                         <span className="w-8 h-8 rounded-md flex items-center justify-center bg-sidebar-accent">
                           {room.charAt(0).toUpperCase()}
                         </span>
