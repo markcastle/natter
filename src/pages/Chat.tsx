@@ -12,7 +12,7 @@ const Chat: React.FC = () => {
   
   return (
     <NatsProvider>
-      <SidebarProvider defaultCollapsed={false} collapsedWidth={68}>
+      <SidebarProvider>
         <div className="min-h-screen flex w-full bg-nats-background">
           <ChatSidebar />
           <div className="flex-1 flex flex-col overflow-hidden">

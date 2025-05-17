@@ -15,6 +15,11 @@ export interface NatsSubscription {
 
 type MessageHandler = (message: Message) => void;
 
+interface ConnectionCredentials {
+  username?: string;
+  password?: string;
+}
+
 class NatsService {
   private ws: WebSocket | null = null;
   private connectionStatus: 'disconnected' | 'connecting' | 'connected' = 'disconnected';
@@ -26,6 +31,7 @@ class NatsService {
   private userId: string;
   private username: string;
   private pingInterval: ReturnType<typeof setInterval> | null = null;
+  private credentials: ConnectionCredentials = {};
 
   constructor() {
     // Generate a random user ID and default username on instantiation
@@ -54,15 +60,29 @@ class NatsService {
   }
 
   // Connect to NATS server via WebSocket
-  public async connect(url: string): Promise<boolean> {
+  public async connect(url: string, username?: string, password?: string): Promise<boolean> {
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       console.log('WebSocket connection already exists');
       return true;
     }
 
+    // Store credentials for reconnection
+    this.credentials = { username, password };
+
     try {
       this.connectionStatus = 'connecting';
-      this.ws = new WebSocket(url);
+      
+      // Build connection URL with credentials if provided
+      let connectionUrl = url;
+      if (username && password) {
+        // Format: ws://username:password@hostname:port
+        const urlObj = new URL(url);
+        urlObj.username = encodeURIComponent(username);
+        urlObj.password = encodeURIComponent(password);
+        connectionUrl = urlObj.toString();
+      }
+      
+      this.ws = new WebSocket(connectionUrl);
 
       return new Promise((resolve, reject) => {
         if (!this.ws) {
@@ -248,7 +268,7 @@ class NatsService {
     
     this.reconnectTimeout = setTimeout(async () => {
       try {
-        await this.connect(url);
+        await this.connect(url, this.credentials.username, this.credentials.password);
         
         // If reconnection is successful, resubscribe to all topics
         if (this.connectionStatus === 'connected') {

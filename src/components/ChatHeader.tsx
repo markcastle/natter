@@ -3,30 +3,50 @@ import React, { useState } from 'react';
 import { useNats } from '@/contexts/NatsContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { User } from 'lucide-react';
+import { User, Server } from 'lucide-react';
+import { Form, FormField, FormItem, FormLabel, FormControl } from '@/components/ui/form';
+import { useForm } from 'react-hook-form';
 
 interface ChatHeaderProps {
   serverUrl: string;
   setServerUrl: (url: string) => void;
 }
 
+interface ServerFormValues {
+  url: string;
+  username: string;
+  password: string;
+}
+
 const ChatHeader: React.FC<ChatHeaderProps> = ({ serverUrl, setServerUrl }) => {
   const { connectionStatus, connect, disconnect, currentRoom, username, setUsername } = useNats();
   const [newUsername, setNewUsername] = useState(username);
-  const [newServerUrl, setNewServerUrl] = useState(serverUrl);
+  const [serverDialogOpen, setServerDialogOpen] = useState(false);
+
+  // Form for server connection settings
+  const serverForm = useForm<ServerFormValues>({
+    defaultValues: {
+      url: serverUrl,
+      username: '',
+      password: ''
+    }
+  });
 
   const handleConnect = () => {
-    connect(serverUrl);
+    const { url, username, password } = serverForm.getValues();
+    connect(url, username, password);
   };
 
   const handleDisconnect = () => {
     disconnect();
   };
 
-  const handleServerUrlChange = () => {
-    setServerUrl(newServerUrl);
+  const handleServerSettingsSave = (values: ServerFormValues) => {
+    setServerUrl(values.url);
+    setServerDialogOpen(false);
   };
 
   const handleUpdateUsername = () => {
@@ -73,29 +93,66 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ serverUrl, setServerUrl }) => {
         </Dialog>
 
         {/* Server URL Dialog */}
-        <Dialog>
+        <Dialog open={serverDialogOpen} onOpenChange={setServerDialogOpen}>
           <DialogTrigger asChild>
             <Button variant="outline" size="sm">
-              Server URL
+              <Server className="h-4 w-4 mr-2" />
+              Server
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>NATS Server URL</DialogTitle>
+              <DialogTitle>NATS Server Connection</DialogTitle>
             </DialogHeader>
-            <div className="py-4">
-              <Input 
-                placeholder="ws://localhost:9222" 
-                value={newServerUrl}
-                onChange={(e) => setNewServerUrl(e.target.value)}
-              />
-            </div>
-            <DialogFooter>
-              <DialogClose asChild>
-                <Button variant="outline">Cancel</Button>
-              </DialogClose>
-              <Button onClick={handleServerUrlChange}>Save</Button>
-            </DialogFooter>
+            <Form {...serverForm}>
+              <form onSubmit={serverForm.handleSubmit(handleServerSettingsSave)} className="space-y-4">
+                <FormField
+                  control={serverForm.control}
+                  name="url"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Server URL</FormLabel>
+                      <FormControl>
+                        <Input placeholder="ws://localhost:9222" {...field} />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                
+                <FormField
+                  control={serverForm.control}
+                  name="username"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Username (optional)</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Username" {...field} />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                
+                <FormField
+                  control={serverForm.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Password (optional)</FormLabel>
+                      <FormControl>
+                        <Input type="password" placeholder="Password" {...field} />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setServerDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit">Save</Button>
+                </DialogFooter>
+              </form>
+            </Form>
           </DialogContent>
         </Dialog>
 

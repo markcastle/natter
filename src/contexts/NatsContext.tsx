@@ -18,7 +18,7 @@ interface NatsContextType {
   currentRoom: string;
   username: string;
   availableRooms: string[];
-  connect: (url: string) => Promise<boolean>;
+  connect: (url: string, username?: string, password?: string) => Promise<boolean>;
   disconnect: () => void;
   sendMessage: (content: string) => boolean;
   subscribeToRoom: (room: string) => void;
@@ -71,10 +71,10 @@ export const NatsProvider: React.FC<NatsProviderProps> = ({ children }) => {
     };
   }, [connectionStatus]);
 
-  const connect = async (url: string): Promise<boolean> => {
+  const connect = async (url: string, username?: string, password?: string): Promise<boolean> => {
     try {
       setConnectionStatus('connecting');
-      const success = await natsService.connect(url);
+      const success = await natsService.connect(url, username, password);
       setConnectionStatus(natsService.getConnectionStatus());
       
       if (success) {

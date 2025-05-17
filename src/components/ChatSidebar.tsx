@@ -13,13 +13,13 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useNats } from '@/contexts/NatsContext';
-import { Plus, X } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 
 const ChatSidebar: React.FC = () => {
-  const { collapsed } = useSidebar();
+  const sidebar = useSidebar();
   const { 
     currentRoom, 
     availableRooms, 
@@ -44,18 +44,17 @@ const ChatSidebar: React.FC = () => {
 
   return (
     <Sidebar
-      className={`transition-all duration-300 ${collapsed ? "w-16" : "w-60"} border-r`}
-      collapsible
+      className={`transition-all duration-300 ${sidebar.collapsed ? "w-16" : "w-60"} border-r`}
     >
       <div className="flex justify-between items-center p-3">
-        {!collapsed && (
+        {!sidebar.collapsed && (
           <div className="text-lg font-semibold text-nats-primary">NATS Chat</div>
         )}
         <SidebarTrigger className="ml-auto" />
       </div>
 
       <SidebarContent>
-        <SidebarGroup defaultOpen>
+        <SidebarGroup>
           <SidebarGroupLabel className="flex justify-between items-center">
             <span>Rooms</span>
             <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -96,10 +95,10 @@ const ChatSidebar: React.FC = () => {
                     onClick={() => handleRoomChange(room)}
                   >
                     <div className="flex items-center">
-                      {!collapsed && (
+                      {!sidebar.collapsed && (
                         <span className="truncate">#{room}</span>
                       )}
-                      {collapsed && (
+                      {sidebar.collapsed && (
                         <span className="w-8 h-8 rounded-md flex items-center justify-center bg-sidebar-accent">
                           {room.charAt(0).toUpperCase()}
                         </span>
