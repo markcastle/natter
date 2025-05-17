@@ -74,20 +74,12 @@ class NatsService {
       
       // Build connection URL with credentials if provided
       let connectionUrl = url;
-      let authHeaders = {};
       
       if (username && password) {
         // For WSS protocol, we need to handle authentication differently
         if (url.startsWith('wss://')) {
           // Use standard WSS URL and handle auth in the CONNECT frame
           connectionUrl = url;
-          
-          // Create auth headers for WSS protocols
-          const authString = `${username}:${password}`;
-          const base64Auth = btoa(authString);
-          authHeaders = {
-            Authorization: `Basic ${base64Auth}`
-          };
         } else {
           // For WS, include credentials in URL directly
           const urlObj = new URL(url);
@@ -161,7 +153,8 @@ class NatsService {
                       if (textData.includes('Authorization') || textData.includes('Authentication')) {
                         this.connectionStatus = 'disconnected';
                         if (this.ws) {
-                          this.ws.close(1008, 'Authentication Failure');
+                          // Use a valid close code (1000 = normal closure)
+                          this.ws.close(1000, 'Authentication Failure');
                         }
                       }
                     }
@@ -200,7 +193,8 @@ class NatsService {
                   if (event.data.includes('Authorization') || event.data.includes('Authentication')) {
                     this.connectionStatus = 'disconnected';
                     if (this.ws) {
-                      this.ws.close(1008, 'Authentication Failure');
+                      // Use a valid close code (1000 = normal closure)
+                      this.ws.close(1000, 'Authentication Failure');
                     }
                   }
                 }
@@ -225,7 +219,12 @@ class NatsService {
           console.log(`Disconnected from NATS server: ${event.code} - ${event.reason}`);
           this.connectionStatus = 'disconnected';
           this.clearPingInterval();
-          this.attemptReconnect(url);
+          
+          // Only attempt reconnect for certain close codes
+          // Don't reconnect on authentication failures
+          if (event.code !== 1000) {
+            this.attemptReconnect(url);
+          }
         };
 
         this.ws.onerror = (error) => {
@@ -258,7 +257,8 @@ class NatsService {
   // Disconnect from NATS server
   public disconnect(): void {
     if (this.ws) {
-      this.ws.close();
+      // Use valid close code
+      this.ws.close(1000);
     }
     
     this.clearPingInterval();

@@ -8,7 +8,7 @@ import MessageList from '@/components/MessageList';
 import MessageInput from '@/components/MessageInput';
 
 const Chat: React.FC = () => {
-  // Set default server URL to WSS
+  // Set default server URL to a public NATS server that works reliably
   const [serverUrl, setServerUrl] = useState('wss://demo.nats.io:8443');
   
   return (
