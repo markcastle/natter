@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { NatsProvider } from '@/contexts/NatsContext';
-import { SidebarProvider } from '@/components/ui/sidebar';
+import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import ChatSidebar from '@/components/ChatSidebar';
 import ChatHeader from '@/components/ChatHeader';
 import MessageList from '@/components/MessageList';
@@ -16,7 +16,10 @@ const Chat: React.FC = () => {
         <div className="min-h-screen flex w-full bg-nats-background">
           <ChatSidebar />
           <div className="flex-1 flex flex-col overflow-hidden">
-            <ChatHeader serverUrl={serverUrl} setServerUrl={setServerUrl} />
+            <div className="flex items-center p-2 border-b">
+              <SidebarTrigger className="mr-2" />
+              <ChatHeader serverUrl={serverUrl} setServerUrl={setServerUrl} />
+            </div>
             <MessageList />
             <MessageInput />
           </div>
