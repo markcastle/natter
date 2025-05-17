@@ -1,3 +1,4 @@
+
 interface Message {
   id: string;
   userId: string;
@@ -31,6 +32,7 @@ class NatsService {
   private username: string;
   private pingInterval: ReturnType<typeof setInterval> | null = null;
   private credentials: ConnectionCredentials = {};
+  private authFailed: boolean = false;
 
   constructor() {
     // Generate a random user ID and default username on instantiation
@@ -57,9 +59,22 @@ class NatsService {
   public getUserId(): string {
     return this.userId;
   }
+  
+  // Get authentication status
+  public getAuthFailedStatus(): boolean {
+    return this.authFailed;
+  }
+  
+  // Reset authentication status
+  public resetAuthStatus(): void {
+    this.authFailed = false;
+  }
 
   // Connect to NATS server via WebSocket
   public async connect(url: string, username?: string, password?: string): Promise<boolean> {
+    // Reset auth status when attempting a new connection
+    this.authFailed = false;
+    
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       console.log('WebSocket connection already exists');
       return true;
@@ -71,22 +86,8 @@ class NatsService {
     try {
       this.connectionStatus = 'connecting';
       
-      // Build connection URL with credentials if provided
+      // Build connection URL without embedding credentials
       let connectionUrl = url;
-      
-      if (username && password) {
-        // For WSS protocol, we need to handle authentication differently
-        if (url.startsWith('wss://')) {
-          // Use standard WSS URL and handle auth in the CONNECT frame
-          connectionUrl = url;
-        } else {
-          // For WS, include credentials in URL directly
-          const urlObj = new URL(url);
-          urlObj.username = encodeURIComponent(username);
-          urlObj.password = encodeURIComponent(password);
-          connectionUrl = urlObj.toString();
-        }
-      }
       
       console.log(`Connecting to ${url} (credentials ${username ? 'provided' : 'not provided'})`);
       this.ws = new WebSocket(connectionUrl);
@@ -101,27 +102,24 @@ class NatsService {
         this.ws.onopen = () => {
           console.log('Connected to NATS server');
           
-          // Send CONNECT frame with credentials if using WSS
+          // Send CONNECT frame with credentials if provided
           if (username && password) {
-            if (url.startsWith('wss://')) {
-              console.log('Sending NATS CONNECT frame with credentials');
-              const connectFrame = JSON.stringify({
-                type: 'CONNECT',
-                verbose: true,
-                pedantic: false,
-                user: username,
-                pass: password,
-                auth_token: null,
-                name: `nats_js_client_${this.userId}`,
-                lang: 'javascript',
-                version: '1.0.0',
-                protocol: 1
-              });
-              
-              if (this.ws) {
-                this.ws.send(connectFrame);
-                console.log('CONNECT frame sent');
-              }
+            console.log('Sending NATS CONNECT frame with credentials');
+            // Proper NATS protocol format for authentication
+            const connectFrame = {
+              verbose: true,
+              pedantic: false,
+              user: username,
+              pass: password,
+              name: `nats_js_client_${this.userId}`,
+              lang: "javascript",
+              version: "1.0.0",
+              protocol: 1
+            };
+            
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+              this.ws.send(`CONNECT ${JSON.stringify(connectFrame)}`);
+              console.log('CONNECT frame sent');
             }
           }
           
@@ -160,9 +158,9 @@ class NatsService {
                       console.error(`NATS server error: ${textData}`);
                       if (textData.includes('Authorization') || textData.includes('Authentication')) {
                         console.error('Authentication error detected');
+                        this.authFailed = true;
                         this.connectionStatus = 'disconnected';
                         if (this.ws) {
-                          // Use a valid close code (1000 = normal closure)
                           this.ws.close(1000, 'Authentication Failure');
                         }
                       }
@@ -174,21 +172,19 @@ class NatsService {
                       // If we have credentials, send CONNECT frame again to ensure authentication
                       if (this.credentials.username && this.credentials.password) {
                         console.log('Sending CONNECT frame with credentials after INFO');
-                        const connectFrame = JSON.stringify({
-                          type: 'CONNECT',
+                        const connectFrame = {
                           verbose: true,
                           pedantic: false,
                           user: this.credentials.username,
                           pass: this.credentials.password,
-                          auth_token: null,
                           name: `nats_js_client_${this.userId}`,
-                          lang: 'javascript',
-                          version: '1.0.0',
+                          lang: "javascript",
+                          version: "1.0.0",
                           protocol: 1
-                        });
+                        };
                         
                         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                          this.ws.send(connectFrame);
+                          this.ws.send(`CONNECT ${JSON.stringify(connectFrame)}`);
                           console.log('CONNECT frame sent after INFO');
                         }
                       }
@@ -229,9 +225,9 @@ class NatsService {
                   console.error(`NATS server error: ${event.data}`);
                   if (event.data.includes('Authorization') || event.data.includes('Authentication')) {
                     console.error('Authentication error detected');
+                    this.authFailed = true;
                     this.connectionStatus = 'disconnected';
                     if (this.ws) {
-                      // Use a valid close code (1000 = normal closure)
                       this.ws.close(1000, 'Authentication Failure');
                     }
                   }
@@ -243,21 +239,19 @@ class NatsService {
                   // If we have credentials, send CONNECT frame again to ensure authentication
                   if (this.credentials.username && this.credentials.password) {
                     console.log('Sending CONNECT frame with credentials after INFO');
-                    const connectFrame = JSON.stringify({
-                      type: 'CONNECT',
+                    const connectFrame = {
                       verbose: true,
                       pedantic: false,
                       user: this.credentials.username,
                       pass: this.credentials.password,
-                      auth_token: null,
                       name: `nats_js_client_${this.userId}`,
-                      lang: 'javascript',
-                      version: '1.0.0',
+                      lang: "javascript",
+                      version: "1.0.0",
                       protocol: 1
-                    });
+                    };
                     
                     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                      this.ws.send(connectFrame);
+                      this.ws.send(`CONNECT ${JSON.stringify(connectFrame)}`);
                       console.log('CONNECT frame sent after INFO');
                     }
                   }
@@ -284,10 +278,16 @@ class NatsService {
           this.connectionStatus = 'disconnected';
           this.clearPingInterval();
           
-          // Only attempt reconnect for certain close codes
-          // Don't reconnect on authentication failures
-          if (event.code !== 1000) {
+          // Don't attempt to reconnect if authentication failed
+          if (!this.authFailed && event.code !== 1000) {
             this.attemptReconnect(url);
+          } else if (this.authFailed) {
+            console.log('Not attempting to reconnect due to authentication failure');
+            // Clear any pending reconnect attempts
+            if (this.reconnectTimeout) {
+              clearTimeout(this.reconnectTimeout);
+              this.reconnectTimeout = null;
+            }
           }
         };
 
@@ -316,6 +316,7 @@ class NatsService {
       console.log('Authentication successful');
     } else if (data.type === 'auth_failure') {
       console.error('Authentication failed:', data.error);
+      this.authFailed = true;
     } else {
       console.log('Unknown message type:', data.type);
     }
@@ -324,12 +325,14 @@ class NatsService {
   // Disconnect from NATS server
   public disconnect(): void {
     if (this.ws) {
-      // Use valid close code
       this.ws.close(1000);
     }
     
     this.clearPingInterval();
     this.connectionStatus = 'disconnected';
+    
+    // Clear authentication failed status on manual disconnect
+    this.authFailed = false;
   }
 
   // Subscribe to a topic
@@ -442,6 +445,12 @@ class NatsService {
 
   // Attempt to reconnect
   private attemptReconnect(url: string): void {
+    // Don't reconnect if auth failed
+    if (this.authFailed) {
+      console.log('Not attempting to reconnect due to authentication failure');
+      return;
+    }
+    
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.log(`Maximum reconnection attempts (${this.maxReconnectAttempts}) reached`);
       return;

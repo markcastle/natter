@@ -18,6 +18,7 @@ interface NatsContextType {
   currentRoom: string;
   username: string;
   availableRooms: string[];
+  authFailed: boolean;
   connect: (url: string, username?: string, password?: string) => Promise<boolean>;
   disconnect: () => void;
   sendMessage: (content: string) => boolean;
@@ -26,6 +27,7 @@ interface NatsContextType {
   setCurrentRoom: (room: string) => void;
   setUsername: (username: string) => void;
   createRoom: (room: string) => void;
+  resetAuthStatus: () => void;
 }
 
 const NatsContext = createContext<NatsContextType | null>(null);
@@ -39,6 +41,7 @@ export const NatsProvider: React.FC<NatsProviderProps> = ({ children }) => {
   const [messages, setMessages] = useState<Record<string, Message[]>>({});
   const [currentRoom, setCurrentRoom] = useState<string>('general');
   const [availableRooms, setAvailableRooms] = useState<string[]>(['general', 'random', 'tech']);
+  const [authFailed, setAuthFailed] = useState<boolean>(false);
   const { toast } = useToast();
   
   // Initialize with username from service
@@ -60,8 +63,21 @@ export const NatsProvider: React.FC<NatsProviderProps> = ({ children }) => {
     // Update connection status when it changes
     const checkConnectionStatus = setInterval(() => {
       const status = natsService.getConnectionStatus();
+      const currentAuthFailed = natsService.getAuthFailedStatus();
+      
       if (status !== connectionStatus) {
         setConnectionStatus(status);
+      }
+      
+      if (currentAuthFailed !== authFailed) {
+        setAuthFailed(currentAuthFailed);
+        if (currentAuthFailed) {
+          toast({
+            title: "Authentication Error",
+            description: "Invalid username or password. Please check your credentials and try again.",
+            variant: "destructive",
+          });
+        }
       }
     }, 1000);
 
@@ -69,7 +85,7 @@ export const NatsProvider: React.FC<NatsProviderProps> = ({ children }) => {
       unsubscribe();
       clearInterval(checkConnectionStatus);
     };
-  }, [connectionStatus]);
+  }, [connectionStatus, authFailed, toast]);
 
   const connect = async (url: string, username?: string, password?: string): Promise<boolean> => {
     try {
@@ -114,6 +130,11 @@ export const NatsProvider: React.FC<NatsProviderProps> = ({ children }) => {
       title: "Disconnected",
       description: "Disconnected from NATS server",
     });
+  };
+  
+  const resetAuthStatus = () => {
+    natsService.resetAuthStatus();
+    setAuthFailed(false);
   };
 
   const sendMessage = (content: string): boolean => {
@@ -204,6 +225,7 @@ export const NatsProvider: React.FC<NatsProviderProps> = ({ children }) => {
     currentRoom,
     username,
     availableRooms,
+    authFailed,
     connect,
     disconnect,
     sendMessage,
@@ -212,6 +234,7 @@ export const NatsProvider: React.FC<NatsProviderProps> = ({ children }) => {
     setCurrentRoom,
     setUsername,
     createRoom,
+    resetAuthStatus,
   };
 
   return (
