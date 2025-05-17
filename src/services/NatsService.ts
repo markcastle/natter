@@ -1,3 +1,4 @@
+
 interface Message {
   id: string;
   userId: string;
@@ -73,14 +74,22 @@ class NatsService {
       
       // Build connection URL with credentials if provided
       let connectionUrl = url;
+      let authHeaders = {};
+      
       if (username && password) {
         // For WSS protocol, we need to handle authentication differently
-        // Most WSS servers expect auth headers or in the connection request
         if (url.startsWith('wss://')) {
-          // Keep the URL clean for WSS and handle auth separately
+          // Use standard WSS URL and handle auth in the CONNECT frame
           connectionUrl = url;
+          
+          // Create auth headers for WSS protocols
+          const authString = `${username}:${password}`;
+          const base64Auth = btoa(authString);
+          authHeaders = {
+            Authorization: `Basic ${base64Auth}`
+          };
         } else {
-          // For regular WS, we can include credentials in URL
+          // For WS, include credentials in URL directly
           const urlObj = new URL(url);
           urlObj.username = encodeURIComponent(username);
           urlObj.password = encodeURIComponent(password);
@@ -91,20 +100,6 @@ class NatsService {
       console.log(`Connecting to ${connectionUrl}`);
       this.ws = new WebSocket(connectionUrl);
       
-      // If using WSS with credentials, handle authentication after connection
-      if (url.startsWith('wss://') && username && password) {
-        this.ws.onopen = () => {
-          if (this.ws) {
-            // Send authentication message
-            this.ws.send(JSON.stringify({
-              type: 'auth',
-              username,
-              password
-            }));
-          }
-        };
-      }
-
       return new Promise((resolve, reject) => {
         if (!this.ws) {
           this.connectionStatus = 'disconnected';
@@ -114,16 +109,28 @@ class NatsService {
 
         this.ws.onopen = () => {
           console.log('Connected to NATS server');
+          
+          // Send CONNECT frame with credentials if using WSS
+          if (url.startsWith('wss://') && username && password) {
+            const connectFrame = {
+              type: 'CONNECT',
+              verbose: true,
+              pedantic: false,
+              user: username,
+              pass: password,
+              auth_token: null,
+              name: `nats_js_client_${this.userId}`
+            };
+            
+            if (this.ws) {
+              this.ws.send(JSON.stringify(connectFrame));
+            }
+          }
+          
           this.connectionStatus = 'connected';
           this.reconnectAttempts = 0;
           this.setupPingInterval();
-          
-          // If WSS with credentials, we already set onopen above
-          if (!(url.startsWith('wss://') && username && password)) {
-            resolve(true);
-          } else {
-            resolve(true);
-          }
+          resolve(true);
         };
 
         this.ws.onmessage = (event) => {
@@ -134,17 +141,80 @@ class NatsService {
               const reader = new FileReader();
               reader.onload = () => {
                 try {
-                  const jsonData = JSON.parse(reader.result as string);
-                  this.processMessage(jsonData);
+                  const textData = reader.result as string;
+                  
+                  // Handle INFO, PING, PONG, and -ERR messages differently
+                  if (textData.startsWith('INFO ') || 
+                      textData === 'PING' || 
+                      textData === 'PONG' || 
+                      textData.startsWith('-ERR')) {
+                    console.log(`Received control message: ${textData.substring(0, 40)}${textData.length > 40 ? '...' : ''}`);
+                    
+                    // Respond to PING with PONG
+                    if (textData === 'PING' && this.ws && this.ws.readyState === WebSocket.OPEN) {
+                      this.ws.send('PONG');
+                    }
+                    
+                    // Handle -ERR messages (authentication errors etc)
+                    if (textData.startsWith('-ERR')) {
+                      console.error(`NATS server error: ${textData}`);
+                      if (textData.includes('Authorization') || textData.includes('Authentication')) {
+                        this.connectionStatus = 'disconnected';
+                        if (this.ws) {
+                          this.ws.close(1008, 'Authentication Failure');
+                        }
+                      }
+                    }
+                    
+                    return;
+                  }
+                  
+                  // Try to parse as JSON for regular messages
+                  try {
+                    const jsonData = JSON.parse(textData);
+                    this.processMessage(jsonData);
+                  } catch (jsonError) {
+                    console.log('Received non-JSON text data:', textData.substring(0, 100));
+                  }
                 } catch (error) {
-                  console.log('Received binary data that is not JSON:', reader.result);
+                  console.error('Error processing binary message:', error);
                 }
               };
               reader.readAsText(event.data);
             } else if (typeof event.data === 'string') {
-              // Handle text data
-              const jsonData = JSON.parse(event.data);
-              this.processMessage(jsonData);
+              // Handle text messages
+              if (event.data.startsWith('INFO ') || 
+                  event.data === 'PING' || 
+                  event.data === 'PONG' || 
+                  event.data.startsWith('-ERR')) {
+                console.log(`Received control message: ${event.data.substring(0, 40)}${event.data.length > 40 ? '...' : ''}`);
+                
+                // Respond to PING with PONG
+                if (event.data === 'PING' && this.ws && this.ws.readyState === WebSocket.OPEN) {
+                  this.ws.send('PONG');
+                }
+                
+                // Handle -ERR messages
+                if (event.data.startsWith('-ERR')) {
+                  console.error(`NATS server error: ${event.data}`);
+                  if (event.data.includes('Authorization') || event.data.includes('Authentication')) {
+                    this.connectionStatus = 'disconnected';
+                    if (this.ws) {
+                      this.ws.close(1008, 'Authentication Failure');
+                    }
+                  }
+                }
+                
+                return;
+              }
+              
+              // Try to parse regular JSON messages
+              try {
+                const jsonData = JSON.parse(event.data);
+                this.processMessage(jsonData);
+              } catch (error) {
+                console.log('Received non-JSON text data:', event.data.substring(0, 100));
+              }
             }
           } catch (error) {
             console.error('Error processing WebSocket message:', error);
@@ -290,7 +360,7 @@ class NatsService {
     this.clearPingInterval();
     this.pingInterval = setInterval(() => {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ type: 'ping' }));
+        this.ws.send('PING');
       }
     }, 30000); // Send ping every 30 seconds
   }

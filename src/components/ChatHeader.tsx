@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNats } from '@/contexts/NatsContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,6 +37,11 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ serverUrl, setServerUrl }) => {
     }
   });
 
+  // Update the form when serverUrl changes
+  useEffect(() => {
+    serverForm.setValue('url', serverUrl);
+  }, [serverUrl, serverForm]);
+
   const handleConnect = async () => {
     const { url, username, password } = serverForm.getValues();
     
@@ -44,6 +49,8 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ serverUrl, setServerUrl }) => {
     let formattedUrl = url.trim();
     if (!formattedUrl.startsWith('ws://') && !formattedUrl.startsWith('wss://')) {
       formattedUrl = `wss://${formattedUrl}`;
+      serverForm.setValue('url', formattedUrl);
+      setServerUrl(formattedUrl);
     }
     
     setIsConnecting(true);
@@ -106,7 +113,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ serverUrl, setServerUrl }) => {
   };
 
   return (
-    <div className="flex justify-between items-center p-4 border-b bg-white dark:bg-gray-900">
+    <div className="flex justify-between items-center p-4 border-b bg-white dark:bg-gray-900 w-full">
       <div className="flex items-center space-x-3">
         <h1 className="text-lg font-semibold text-nats-primary">
           #{currentRoom}
@@ -165,12 +172,8 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ serverUrl, setServerUrl }) => {
                       <FormLabel>Server URL</FormLabel>
                       <FormControl>
                         <Input 
-                          placeholder="wss://example.com:9222" 
+                          placeholder="wss://example.com:4222" 
                           {...field} 
-                          onChange={(e) => {
-                            let value = e.target.value;
-                            field.onChange(value);
-                          }}
                         />
                       </FormControl>
                     </FormItem>
