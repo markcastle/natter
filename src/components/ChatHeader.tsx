@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useNats } from '@/contexts/NatsContext';
 import { Button } from '@/components/ui/button';
@@ -27,6 +26,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ serverUrl, setServerUrl }) => {
   const [newUsername, setNewUsername] = useState(username);
   const [serverDialogOpen, setServerDialogOpen] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   // Form for server connection settings
   const serverForm = useForm<ServerFormValues>({
@@ -44,6 +44,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ serverUrl, setServerUrl }) => {
 
   const handleConnect = async () => {
     const { url, username, password } = serverForm.getValues();
+    setAuthError(null);
     
     // Ensure the URL includes wss:// or ws://
     let formattedUrl = url.trim();
@@ -55,7 +56,11 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ serverUrl, setServerUrl }) => {
     
     setIsConnecting(true);
     try {
-      await connect(formattedUrl, username, password);
+      console.log(`Connecting with credentials: ${username ? 'provided' : 'not provided'}`);
+      const success = await connect(formattedUrl, username, password);
+      if (!success && username && password) {
+        setAuthError('Authentication failed. Please check your credentials.');
+      }
     } finally {
       setIsConnecting(false);
     }
@@ -205,6 +210,10 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ serverUrl, setServerUrl }) => {
                     </FormItem>
                   )}
                 />
+                
+                {authError && (
+                  <div className="text-red-500 text-sm">{authError}</div>
+                )}
                 
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={() => setServerDialogOpen(false)}>

@@ -1,4 +1,3 @@
-
 interface Message {
   id: string;
   userId: string;
@@ -89,7 +88,7 @@ class NatsService {
         }
       }
       
-      console.log(`Connecting to ${connectionUrl}`);
+      console.log(`Connecting to ${url} (credentials ${username ? 'provided' : 'not provided'})`);
       this.ws = new WebSocket(connectionUrl);
       
       return new Promise((resolve, reject) => {
@@ -103,19 +102,26 @@ class NatsService {
           console.log('Connected to NATS server');
           
           // Send CONNECT frame with credentials if using WSS
-          if (url.startsWith('wss://') && username && password) {
-            const connectFrame = {
-              type: 'CONNECT',
-              verbose: true,
-              pedantic: false,
-              user: username,
-              pass: password,
-              auth_token: null,
-              name: `nats_js_client_${this.userId}`
-            };
-            
-            if (this.ws) {
-              this.ws.send(JSON.stringify(connectFrame));
+          if (username && password) {
+            if (url.startsWith('wss://')) {
+              console.log('Sending NATS CONNECT frame with credentials');
+              const connectFrame = JSON.stringify({
+                type: 'CONNECT',
+                verbose: true,
+                pedantic: false,
+                user: username,
+                pass: password,
+                auth_token: null,
+                name: `nats_js_client_${this.userId}`,
+                lang: 'javascript',
+                version: '1.0.0',
+                protocol: 1
+              });
+              
+              if (this.ws) {
+                this.ws.send(connectFrame);
+                console.log('CONNECT frame sent');
+              }
             }
           }
           
@@ -135,12 +141,14 @@ class NatsService {
                 try {
                   const textData = reader.result as string;
                   
+                  console.log('Received binary data converted to text:', textData.substring(0, 100));
+                  
                   // Handle INFO, PING, PONG, and -ERR messages differently
                   if (textData.startsWith('INFO ') || 
                       textData === 'PING' || 
                       textData === 'PONG' || 
                       textData.startsWith('-ERR')) {
-                    console.log(`Received control message: ${textData.substring(0, 40)}${textData.length > 40 ? '...' : ''}`);
+                    console.log(`Received control message: ${textData.substring(0, 100)}`);
                     
                     // Respond to PING with PONG
                     if (textData === 'PING' && this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -151,10 +159,37 @@ class NatsService {
                     if (textData.startsWith('-ERR')) {
                       console.error(`NATS server error: ${textData}`);
                       if (textData.includes('Authorization') || textData.includes('Authentication')) {
+                        console.error('Authentication error detected');
                         this.connectionStatus = 'disconnected';
                         if (this.ws) {
                           // Use a valid close code (1000 = normal closure)
                           this.ws.close(1000, 'Authentication Failure');
+                        }
+                      }
+                    }
+                    
+                    // Handle INFO message for initial connection
+                    if (textData.startsWith('INFO ')) {
+                      console.log('Received INFO from server');
+                      // If we have credentials, send CONNECT frame again to ensure authentication
+                      if (this.credentials.username && this.credentials.password) {
+                        console.log('Sending CONNECT frame with credentials after INFO');
+                        const connectFrame = JSON.stringify({
+                          type: 'CONNECT',
+                          verbose: true,
+                          pedantic: false,
+                          user: this.credentials.username,
+                          pass: this.credentials.password,
+                          auth_token: null,
+                          name: `nats_js_client_${this.userId}`,
+                          lang: 'javascript',
+                          version: '1.0.0',
+                          protocol: 1
+                        });
+                        
+                        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                          this.ws.send(connectFrame);
+                          console.log('CONNECT frame sent after INFO');
                         }
                       }
                     }
@@ -176,11 +211,13 @@ class NatsService {
               reader.readAsText(event.data);
             } else if (typeof event.data === 'string') {
               // Handle text messages
+              console.log('Received text data:', event.data.substring(0, 100));
+              
               if (event.data.startsWith('INFO ') || 
                   event.data === 'PING' || 
                   event.data === 'PONG' || 
                   event.data.startsWith('-ERR')) {
-                console.log(`Received control message: ${event.data.substring(0, 40)}${event.data.length > 40 ? '...' : ''}`);
+                console.log(`Received control message: ${event.data.substring(0, 100)}`);
                 
                 // Respond to PING with PONG
                 if (event.data === 'PING' && this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -191,10 +228,37 @@ class NatsService {
                 if (event.data.startsWith('-ERR')) {
                   console.error(`NATS server error: ${event.data}`);
                   if (event.data.includes('Authorization') || event.data.includes('Authentication')) {
+                    console.error('Authentication error detected');
                     this.connectionStatus = 'disconnected';
                     if (this.ws) {
                       // Use a valid close code (1000 = normal closure)
                       this.ws.close(1000, 'Authentication Failure');
+                    }
+                  }
+                }
+                
+                // Handle INFO message for initial connection
+                if (event.data.startsWith('INFO ')) {
+                  console.log('Received INFO from server');
+                  // If we have credentials, send CONNECT frame again to ensure authentication
+                  if (this.credentials.username && this.credentials.password) {
+                    console.log('Sending CONNECT frame with credentials after INFO');
+                    const connectFrame = JSON.stringify({
+                      type: 'CONNECT',
+                      verbose: true,
+                      pedantic: false,
+                      user: this.credentials.username,
+                      pass: this.credentials.password,
+                      auth_token: null,
+                      name: `nats_js_client_${this.userId}`,
+                      lang: 'javascript',
+                      version: '1.0.0',
+                      protocol: 1
+                    });
+                    
+                    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                      this.ws.send(connectFrame);
+                      console.log('CONNECT frame sent after INFO');
                     }
                   }
                 }
@@ -242,6 +306,7 @@ class NatsService {
 
   // Process incoming message data
   private processMessage(data: any): void {
+    console.log('Processing message:', data);
     if (data.type === 'message') {
       this.handleIncomingMessage(data.message);
     } else if (data.type === 'pong') {
@@ -251,6 +316,8 @@ class NatsService {
       console.log('Authentication successful');
     } else if (data.type === 'auth_failure') {
       console.error('Authentication failed:', data.error);
+    } else {
+      console.log('Unknown message type:', data.type);
     }
   }
 
