@@ -62,7 +62,7 @@ Natter is a blazing-fast, developer-friendly chat app using [NATS](https://nats.
 - All logic is modular and testable
 
 ## 🗂️ Project Structure
-```
+```text
 ├── src/
 │   ├── components/      # UI components (chat, sidebar, etc)
 │   ├── contexts/        # React Contexts (NatsContext, etc)
@@ -74,6 +74,7 @@ Natter is a blazing-fast, developer-friendly chat app using [NATS](https://nats.
 ├── README.md            # This file
 └── ...
 ```
+
 
 ## 🪄 NATS Topic Conventions
 - All chat rooms are NATS topics: `chat.<room>` (e.g., `chat.general`, `chat.tech`)
