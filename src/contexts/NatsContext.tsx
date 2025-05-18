@@ -1,17 +1,6 @@
-
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import NatsService from '../services/NatsService';
-const natsService = new NatsService();
+import natsService, { Message } from '../services/nats';
 import { useToast } from '@/hooks/use-toast';
-
-interface Message {
-  id: string;
-  userId: string;
-  username: string;
-  content: string;
-  topic: string;
-  timestamp: number;
-}
 
 interface NatsContextType {
   connectionStatus: 'disconnected' | 'connecting' | 'connected';
