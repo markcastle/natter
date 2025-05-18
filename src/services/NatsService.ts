@@ -1,4 +1,6 @@
 
+import { connect, NatsConnection, StringCodec, Subscription } from 'nats.ws';
+
 interface Message {
   id: string;
   userId: string;
@@ -20,17 +22,14 @@ interface ConnectionCredentials {
   password?: string;
 }
 
+
 class NatsService {
-  private ws: WebSocket | null = null;
+  private nc: NatsConnection | null = null;
   private connectionStatus: 'disconnected' | 'connecting' | 'connected' = 'disconnected';
   private messageHandlers: Set<MessageHandler> = new Set();
-  private subscriptions: Map<string, NatsSubscription> = new Map();
-  private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
-  private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+  private subscriptions: Map<string, Subscription> = new Map();
   private userId: string;
   private username: string;
-  private pingInterval: ReturnType<typeof setInterval> | null = null;
   private credentials: ConnectionCredentials = {};
   private authFailed: boolean = false;
 
@@ -40,269 +39,100 @@ class NatsService {
     this.username = `User-${Math.random().toString(36).substring(2, 5)}`;
   }
 
+
   // Get current connection status
   public getConnectionStatus(): 'disconnected' | 'connecting' | 'connected' {
     return this.connectionStatus;
   }
+
 
   // Set username
   public setUsername(username: string): void {
     this.username = username;
   }
 
+
   // Get username
   public getUsername(): string {
     return this.username;
   }
 
+
   // Get userId
   public getUserId(): string {
     return this.userId;
   }
+
   
   // Get authentication status
   public getAuthFailedStatus(): boolean {
     return this.authFailed;
   }
+
   
   // Reset authentication status
   public resetAuthStatus(): void {
     this.authFailed = false;
   }
 
-  // Connect to NATS server via WebSocket
+
+  // Connect to NATS server using nats.ws
   public async connect(url: string, username?: string, password?: string): Promise<boolean> {
-    // Reset auth status when attempting a new connection
     this.authFailed = false;
-    
-    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
-      console.log('WebSocket connection already exists');
-      return true;
+    this.credentials = { username, password };
+    if (this.nc) {
+      try {
+        await this.nc.close();
+      } catch (e) {}
+
+      this.nc = null;
     }
 
-    // Store credentials for reconnection
-    this.credentials = { username, password };
-
+    this.connectionStatus = 'connecting';
     try {
-      this.connectionStatus = 'connecting';
-      
-      // Build connection URL without embedding credentials
-      let connectionUrl = url;
-      
-      console.log(`Connecting to ${url} (credentials ${username ? 'provided' : 'not provided'})`);
-      this.ws = new WebSocket(connectionUrl);
-      
-      return new Promise((resolve, reject) => {
-        if (!this.ws) {
+      const options: any = {
+        servers: [url],
+        reconnect: true,
+        maxReconnectAttempts: 5,
+        reconnectTimeWait: 2000,
+        timeout: 30000,
+        pingInterval: 30000,
+        maxPingOut: 3,
+      };
+      if (username) {
+        options.user = username;
+        options.pass = password || '';
+      }
+
+      // Optionally support token auth
+      if ((username && !password) && username.length > 20) {
+        options.token = username;
+      }
+
+      this.nc = await connect(options);
+      this.connectionStatus = 'connected';
+      this.nc.closed().then((err) => {
+        if (err) {
           this.connectionStatus = 'disconnected';
-          reject(new Error('Failed to create WebSocket'));
-          return;
+          this.authFailed = true;
+          this.nc = null;
         }
 
-        this.ws.onopen = () => {
-          console.log('Connected to NATS server');
-          
-          // Send CONNECT frame with credentials if provided
-          if (username && password) {
-            console.log('Sending NATS CONNECT frame with credentials');
-            // Proper NATS protocol format for authentication
-            const connectFrame = {
-              verbose: true,
-              pedantic: false,
-              user: username,
-              pass: password,
-              name: `nats_js_client_${this.userId}`,
-              lang: "javascript",
-              version: "1.0.0",
-              protocol: 1
-            };
-            
-            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-              this.ws.send(`CONNECT ${JSON.stringify(connectFrame)}`);
-              console.log('CONNECT frame sent');
-            }
-          }
-          
-          this.connectionStatus = 'connected';
-          this.reconnectAttempts = 0;
-          this.setupPingInterval();
-          resolve(true);
-        };
-
-        this.ws.onmessage = (event) => {
-          try {
-            // Handle both text and binary messages
-            if (event.data instanceof Blob) {
-              // Handle binary data (Blob)
-              const reader = new FileReader();
-              reader.onload = () => {
-                try {
-                  const textData = reader.result as string;
-                  
-                  console.log('Received binary data converted to text:', textData.substring(0, 100));
-                  
-                  // Handle INFO, PING, PONG, and -ERR messages differently
-                  if (textData.startsWith('INFO ') || 
-                      textData === 'PING' || 
-                      textData === 'PONG' || 
-                      textData.startsWith('-ERR')) {
-                    console.log(`Received control message: ${textData.substring(0, 100)}`);
-                    
-                    // Respond to PING with PONG
-                    if (textData === 'PING' && this.ws && this.ws.readyState === WebSocket.OPEN) {
-                      this.ws.send('PONG');
-                    }
-                    
-                    // Handle -ERR messages (authentication errors etc)
-                    if (textData.startsWith('-ERR')) {
-                      console.error(`NATS server error: ${textData}`);
-                      if (textData.includes('Authorization') || textData.includes('Authentication')) {
-                        console.error('Authentication error detected');
-                        this.authFailed = true;
-                        this.connectionStatus = 'disconnected';
-                        if (this.ws) {
-                          this.ws.close(1000, 'Authentication Failure');
-                        }
-                      }
-                    }
-                    
-                    // Handle INFO message for initial connection
-                    if (textData.startsWith('INFO ')) {
-                      console.log('Received INFO from server');
-                      // If we have credentials, send CONNECT frame again to ensure authentication
-                      if (this.credentials.username && this.credentials.password) {
-                        console.log('Sending CONNECT frame with credentials after INFO');
-                        const connectFrame = {
-                          verbose: true,
-                          pedantic: false,
-                          user: this.credentials.username,
-                          pass: this.credentials.password,
-                          name: `nats_js_client_${this.userId}`,
-                          lang: "javascript",
-                          version: "1.0.0",
-                          protocol: 1
-                        };
-                        
-                        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                          this.ws.send(`CONNECT ${JSON.stringify(connectFrame)}`);
-                          console.log('CONNECT frame sent after INFO');
-                        }
-                      }
-                    }
-                    
-                    return;
-                  }
-                  
-                  // Try to parse as JSON for regular messages
-                  try {
-                    const jsonData = JSON.parse(textData);
-                    this.processMessage(jsonData);
-                  } catch (jsonError) {
-                    console.log('Received non-JSON text data:', textData.substring(0, 100));
-                  }
-                } catch (error) {
-                  console.error('Error processing binary message:', error);
-                }
-              };
-              reader.readAsText(event.data);
-            } else if (typeof event.data === 'string') {
-              // Handle text messages
-              console.log('Received text data:', event.data.substring(0, 100));
-              
-              if (event.data.startsWith('INFO ') || 
-                  event.data === 'PING' || 
-                  event.data === 'PONG' || 
-                  event.data.startsWith('-ERR')) {
-                console.log(`Received control message: ${event.data.substring(0, 100)}`);
-                
-                // Respond to PING with PONG
-                if (event.data === 'PING' && this.ws && this.ws.readyState === WebSocket.OPEN) {
-                  this.ws.send('PONG');
-                }
-                
-                // Handle -ERR messages
-                if (event.data.startsWith('-ERR')) {
-                  console.error(`NATS server error: ${event.data}`);
-                  if (event.data.includes('Authorization') || event.data.includes('Authentication')) {
-                    console.error('Authentication error detected');
-                    this.authFailed = true;
-                    this.connectionStatus = 'disconnected';
-                    if (this.ws) {
-                      this.ws.close(1000, 'Authentication Failure');
-                    }
-                  }
-                }
-                
-                // Handle INFO message for initial connection
-                if (event.data.startsWith('INFO ')) {
-                  console.log('Received INFO from server');
-                  // If we have credentials, send CONNECT frame again to ensure authentication
-                  if (this.credentials.username && this.credentials.password) {
-                    console.log('Sending CONNECT frame with credentials after INFO');
-                    const connectFrame = {
-                      verbose: true,
-                      pedantic: false,
-                      user: this.credentials.username,
-                      pass: this.credentials.password,
-                      name: `nats_js_client_${this.userId}`,
-                      lang: "javascript",
-                      version: "1.0.0",
-                      protocol: 1
-                    };
-                    
-                    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                      this.ws.send(`CONNECT ${JSON.stringify(connectFrame)}`);
-                      console.log('CONNECT frame sent after INFO');
-                    }
-                  }
-                }
-                
-                return;
-              }
-              
-              // Try to parse regular JSON messages
-              try {
-                const jsonData = JSON.parse(event.data);
-                this.processMessage(jsonData);
-              } catch (error) {
-                console.log('Received non-JSON text data:', event.data.substring(0, 100));
-              }
-            }
-          } catch (error) {
-            console.error('Error processing WebSocket message:', error);
-          }
-        };
-
-        this.ws.onclose = (event) => {
-          console.log(`Disconnected from NATS server: ${event.code} - ${event.reason}`);
-          this.connectionStatus = 'disconnected';
-          this.clearPingInterval();
-          
-          // Don't attempt to reconnect if authentication failed
-          if (!this.authFailed && event.code !== 1000) {
-            this.attemptReconnect(url);
-          } else if (this.authFailed) {
-            console.log('Not attempting to reconnect due to authentication failure');
-            // Clear any pending reconnect attempts
-            if (this.reconnectTimeout) {
-              clearTimeout(this.reconnectTimeout);
-              this.reconnectTimeout = null;
-            }
-          }
-        };
-
-        this.ws.onerror = (error) => {
-          console.error('WebSocket error:', error);
-          this.connectionStatus = 'disconnected';
-          reject(error);
-        };
       });
-    } catch (error) {
-      console.error('Failed to connect to NATS server:', error);
+      // Listen for messages on all subscriptions
+      for (const [topic, sub] of this.subscriptions) {
+        this.processSubscription(topic, sub);
+      }
+
+      return true;
+    } catch (err: any) {
       this.connectionStatus = 'disconnected';
+      console.error('NATS connection error:', err);
       return false;
     }
+
   }
+
 
   // Process incoming message data
   private processMessage(data: any): void {
@@ -320,99 +150,121 @@ class NatsService {
     } else {
       console.log('Unknown message type:', data.type);
     }
+
   }
 
-  // Disconnect from NATS server
-  public disconnect(): void {
-    if (this.ws) {
-      this.ws.close(1000);
-    }
-    
-    this.clearPingInterval();
-    this.connectionStatus = 'disconnected';
-    
-    // Clear authentication failed status on manual disconnect
-    this.authFailed = false;
-  }
 
-  // Subscribe to a topic
-  public subscribe(topic: string): NatsSubscription | null {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.error('Cannot subscribe: WebSocket not connected');
-      return null;
-    }
 
-    // Check if we're already subscribed
-    if (this.subscriptions.has(topic)) {
-      return this.subscriptions.get(topic) || null;
-    }
-
-    // Send subscription request
-    this.ws.send(JSON.stringify({
-      type: 'subscribe',
-      topic
-    }));
-
-    // Create subscription object
-    const subscription: NatsSubscription = {
-      topic,
-      unsubscribe: () => this.unsubscribe(topic)
-    };
-
-    // Store subscription
-    this.subscriptions.set(topic, subscription);
-    return subscription;
-  }
 
   // Unsubscribe from a topic
   public unsubscribe(topic: string): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.error('Cannot unsubscribe: WebSocket not connected');
-      return;
-    }
-
-    if (this.subscriptions.has(topic)) {
-      this.ws.send(JSON.stringify({
-        type: 'unsubscribe',
-        topic
-      }));
-      
+    if (!this.nc) return;
+    const sub = this.subscriptions.get(topic);
+    if (sub) {
+      sub.unsubscribe();
       this.subscriptions.delete(topic);
     }
+
   }
 
-  // Publish a message to a topic
+
+  /**
+   * Publish a message to a topic.
+   *
+   * @param topic The topic to publish to.
+   * @param content The content of the message.
+   * @returns True if published, false otherwise.
+   */
   public publish(topic: string, content: string): boolean {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.error('Cannot publish: WebSocket not connected');
+    if (!this.nc) {
+      console.error('Not connected to NATS');
       return false;
     }
 
-    const message: Message = {
-      id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-      userId: this.userId,
-      username: this.username,
-      content,
-      topic,
-      timestamp: Date.now()
-    };
+    try {
+      const sc = StringCodec();
+      this.nc.publish(topic, sc.encode(content));
+      return true;
+    } catch (err) {
+      console.error('Failed to publish:', err);
+      return false;
+    }
 
-    this.ws.send(JSON.stringify({
-      type: 'publish',
-      topic,
-      message
-    }));
-
-    return true;
   }
 
-  // Register a message handler
-  public onMessage(handler: MessageHandler): () => void {
-    this.messageHandlers.add(handler);
-    return () => {
-      this.messageHandlers.delete(handler);
-    };
+
+  /**
+   * Subscribe to a topic using nats.ws.
+   *
+   * @param topic The topic to subscribe to.
+   * @returns A NatsSubscription object or null if not connected.
+   */
+  public subscribe(topic: string): NatsSubscription | null {
+    if (!this.nc) {
+      console.error('Not connected to NATS');
+      return null;
+    }
+
+    if (this.subscriptions.has(topic)) {
+      return { topic, unsubscribe: () => this.unsubscribe(topic) };
+    }
+
+    try {
+      const sub = this.nc.subscribe(topic);
+      this.subscriptions.set(topic, sub);
+      this.processSubscription(topic, sub);
+      return { topic, unsubscribe: () => this.unsubscribe(topic) };
+    } catch (err) {
+      console.error('Failed to subscribe:', err);
+      return null;
+    }
+
   }
+
+
+  /**
+   * Process incoming messages for a subscription.
+   *
+   * @param topic The topic for the subscription.
+   * @param sub The NATS Subscription object.
+   */
+  private async processSubscription(topic: string, sub: Subscription) {
+    const sc = StringCodec();
+    (async () => {
+      for await (const msg of sub) {
+        try {
+          const data = sc.decode(msg.data);
+          const message: Message = {
+            id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+            userId: this.userId,
+            username: this.username,
+            content: data,
+            topic,
+            timestamp: Date.now(),
+          };
+          this.handleIncomingMessage(message);
+        } catch (err) {
+          console.error('Error processing subscription message:', err);
+        }
+      }
+    })();
+  }
+
+  /**
+   * Disconnect from the NATS server and clean up resources.
+   */
+  public async disconnect(): Promise<void> {
+    if (this.nc) {
+      try {
+        await this.nc.close();
+      } catch (e) {
+        console.error('Error closing NATS connection:', e);
+      }
+      this.nc = null;
+    }
+    this.connectionStatus = 'disconnected';
+  }
+
 
   // Handle incoming message
   private handleIncomingMessage(message: Message): void {
@@ -422,69 +274,24 @@ class NatsService {
       } catch (error) {
         console.error('Error in message handler:', error);
       }
+
     });
   }
 
-  // Setup ping interval
-  private setupPingInterval(): void {
-    this.clearPingInterval();
-    this.pingInterval = setInterval(() => {
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send('PING');
-      }
-    }, 30000); // Send ping every 30 seconds
+
+  /**
+   * Register a message handler.
+   *
+   * @param handler The message handler function.
+   * @returns A function to remove the handler.
+   */
+  public onMessage(handler: MessageHandler): () => void {
+    this.messageHandlers.add(handler);
+    return () => {
+      this.messageHandlers.delete(handler);
+    };
   }
 
-  // Clear ping interval
-  private clearPingInterval(): void {
-    if (this.pingInterval) {
-      clearInterval(this.pingInterval);
-      this.pingInterval = null;
-    }
-  }
-
-  // Attempt to reconnect
-  private attemptReconnect(url: string): void {
-    // Don't reconnect if auth failed
-    if (this.authFailed) {
-      console.log('Not attempting to reconnect due to authentication failure');
-      return;
-    }
-    
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.log(`Maximum reconnection attempts (${this.maxReconnectAttempts}) reached`);
-      return;
-    }
-
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-    }
-
-    this.reconnectAttempts++;
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts - 1), 30000);
-    
-    console.log(`Attempting to reconnect in ${delay}ms (attempt ${this.reconnectAttempts})`);
-    
-    this.reconnectTimeout = setTimeout(async () => {
-      try {
-        await this.connect(url, this.credentials.username, this.credentials.password);
-        
-        // If reconnection is successful, resubscribe to all topics
-        if (this.connectionStatus === 'connected') {
-          const topics = Array.from(this.subscriptions.keys());
-          this.subscriptions.clear();
-          topics.forEach(topic => {
-            this.subscribe(topic);
-          });
-        }
-      } catch (error) {
-        console.error('Reconnection failed:', error);
-      }
-    }, delay);
-  }
 }
 
-// Create a singleton instance
-const natsService = new NatsService();
-
-export default natsService;
+export default NatsService;

@@ -1,6 +1,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import natsService from '../services/NatsService';
+import NatsService from '../services/NatsService';
+const natsService = new NatsService();
 import { useToast } from '@/hooks/use-toast';
 
 interface Message {
