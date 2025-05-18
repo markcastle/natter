@@ -1,4 +1,3 @@
-
 import { connect, NatsConnection, StringCodec, Subscription } from 'nats.ws';
 
 interface Message {
@@ -22,6 +21,13 @@ interface ConnectionCredentials {
   password?: string;
 }
 
+// Message format for JSON communication
+interface MessagePayload {
+  name: string;
+  message: string;
+  timestamp: string;
+  userId?: string;
+}
 
 class NatsService {
   private nc: NatsConnection | null = null;
@@ -183,7 +189,20 @@ class NatsService {
 
     try {
       const sc = StringCodec();
-      this.nc.publish(topic, sc.encode(content));
+      
+      // Create a JSON message payload
+      const payload: MessagePayload = {
+        name: this.username,
+        message: content,
+        timestamp: new Date().toISOString(),
+        userId: this.userId
+      };
+      
+      // Convert the payload to a JSON string
+      const jsonMessage = JSON.stringify(payload);
+      
+      // Publish the JSON message
+      this.nc.publish(topic, sc.encode(jsonMessage));
       return true;
     } catch (err) {
       console.error('Failed to publish:', err);
@@ -218,7 +237,6 @@ class NatsService {
       console.error('Failed to subscribe:', err);
       return null;
     }
-
   }
 
 
@@ -234,14 +252,33 @@ class NatsService {
       for await (const msg of sub) {
         try {
           const data = sc.decode(msg.data);
+          let parsedData: MessagePayload;
+          let content: string;
+          let senderName: string;
+          let senderId: string | undefined;
+          
+          // Try to parse as JSON first
+          try {
+            parsedData = JSON.parse(data);
+            content = parsedData.message;
+            senderName = parsedData.name || 'Unknown';
+            senderId = parsedData.userId;
+          } catch (e) {
+            // If not valid JSON, use the raw message as content
+            content = data;
+            senderName = 'Unknown';
+            senderId = undefined;
+          }
+          
           const message: Message = {
             id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-            userId: this.userId,
-            username: this.username,
-            content: data,
+            userId: senderId || 'unknown-user',
+            username: senderName,
+            content: content,
             topic,
             timestamp: Date.now(),
           };
+          
           this.handleIncomingMessage(message);
         } catch (err) {
           console.error('Error processing subscription message:', err);
@@ -291,7 +328,6 @@ class NatsService {
       this.messageHandlers.delete(handler);
     };
   }
-
 }
 
 export default NatsService;

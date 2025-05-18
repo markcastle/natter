@@ -1,9 +1,10 @@
+
 import React, { useState, useEffect } from 'react';
 import { useNats } from '@/contexts/NatsContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose, DialogDescription } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { User, Server, WifiOff, Wifi, Loader } from 'lucide-react';
 import { Form, FormField, FormItem, FormLabel, FormControl } from '@/components/ui/form';
@@ -27,6 +28,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ serverUrl, setServerUrl }) => {
   const [serverDialogOpen, setServerDialogOpen] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [usernameDialogOpen, setUsernameDialogOpen] = useState(false);
 
   // Form for server connection settings
   const serverForm = useForm<ServerFormValues>({
@@ -85,6 +87,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ serverUrl, setServerUrl }) => {
   const handleUpdateUsername = () => {
     if (newUsername.trim()) {
       setUsername(newUsername);
+      setUsernameDialogOpen(false); // Close dialog after setting username
     }
   };
 
@@ -128,7 +131,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ serverUrl, setServerUrl }) => {
       
       <div className="flex items-center space-x-2">
         {/* Username Dialog */}
-        <Dialog>
+        <Dialog open={usernameDialogOpen} onOpenChange={setUsernameDialogOpen}>
           <DialogTrigger asChild>
             <Button variant="outline" size="sm" className="flex items-center">
               <User className="h-4 w-4 mr-2" />
@@ -138,6 +141,9 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ serverUrl, setServerUrl }) => {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Change Username</DialogTitle>
+              <DialogDescription>
+                Enter a new username that will be displayed to other users.
+              </DialogDescription>
             </DialogHeader>
             <div className="py-4">
               <Input 
@@ -166,6 +172,9 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ serverUrl, setServerUrl }) => {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>NATS Server Connection</DialogTitle>
+              <DialogDescription>
+                Configure your connection to a NATS server.
+              </DialogDescription>
             </DialogHeader>
             <Form {...serverForm}>
               <form onSubmit={serverForm.handleSubmit(handleServerSettingsSave)} className="space-y-4">
